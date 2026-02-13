@@ -1,7 +1,6 @@
 import pytest
 fitz = pytest.importorskip("fitz")
 
-
 from certsplit.config import Config
 from certsplit.pipeline import process_pdf
 
@@ -14,6 +13,16 @@ def _make_pdf(path):
     p2.insert_text((72, 72), "Supplement\nPage 2/2")
     p3 = doc.new_page()
     p3.insert_text((72, 72), "Inspection certificate No: 87654321\nColada: H222")
+    doc.save(path)
+    doc.close()
+
+
+def _make_same_cert_pdf(path):
+    doc = fitz.open()
+    p1 = doc.new_page()
+    p1.insert_text((72, 72), "Certificate No. 55555555\nHeat No. H999")
+    p2 = doc.new_page()
+    p2.insert_text((72, 72), "Certificate No. 55555555\nHeat No. H999")
     doc.save(path)
     doc.close()
 
@@ -38,3 +47,21 @@ def test_process_pdf_splits_by_certificate(tmp_path):
     audit = (out / "audit.csv").read_text(encoding="utf-8")
     assert "12345678" in audit
     assert "87654321" in audit
+
+
+def test_process_pdf_generates_unique_names_for_duplicate_groups(tmp_path):
+    src = tmp_path / "dupe.pdf"
+    out = tmp_path / "out_dupe"
+    _make_same_cert_pdf(str(src))
+
+    cfg = Config(ocr_mode="none", split_within_cert_on_heat_change=False)
+    first = process_pdf(str(src), "GENCA", str(out), cfg)
+    second = process_pdf(str(src), "GENCA", str(out), cfg)
+
+    assert len(first) == 1
+    assert len(second) == 1
+    first_name = first[0].split("/")[-1]
+    second_name = second[0].split("/")[-1]
+    assert first_name != second_name
+    assert second_name.endswith(".pdf")
+    assert "__1" in second_name

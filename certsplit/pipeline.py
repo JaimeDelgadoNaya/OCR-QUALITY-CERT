@@ -43,6 +43,18 @@ def process_pdf(pdf_path: str, vendor: str, out_dir: str, cfg: Config, status_cb
 
     doc = fitz.open(work_pdf)
     extractions = [extract_page_signature(doc.load_page(i), vendor) for i in range(doc.page_count)]
+
+    meaningful = sum(1 for e in extractions if e.signature and (e.signature.cert_id or e.signature.heats))
+    if meaningful == 0 and mode not in {"force", "none"}:
+        doc.close()
+        retry_pdf = os.path.join(out_dir, f"{base}__ocr_force.pdf")
+        if status_cb:
+            status_cb("OCR (force retry)")
+        run_ocr(pdf_path, retry_pdf, cfg, "force")
+        work_pdf = retry_pdf
+        doc = fitz.open(work_pdf)
+        extractions = [extract_page_signature(doc.load_page(i), vendor) for i in range(doc.page_count)]
+
     groups = group_pages(extractions, split_on_heat_change=cfg.split_within_cert_on_heat_change)
     write_page_audit(out_dir, base, extractions)
 
@@ -53,8 +65,10 @@ def process_pdf(pdf_path: str, vendor: str, out_dir: str, cfg: Config, status_cb
         filename = build_filename(gs, cfg)
         candidate = filename
         n = 1
+        stem, ext = os.path.splitext(filename)
+        ext = ext or ".pdf"
         while candidate in used or os.path.exists(os.path.join(out_dir, candidate)):
-            candidate = filename.replace(".pdf", f"__{n}.pdf")
+            candidate = f"{stem}__{n}{ext}"
             n += 1
         used.add(candidate)
         out_path = os.path.join(out_dir, candidate)

@@ -29,6 +29,8 @@ def run_ocr(input_pdf: str, output_pdf: str, cfg: Config, mode: str) -> None:
         "ocrmypdf",
         "--rotate-pages",
         "--deskew",
+        "--rotate-pages-threshold",
+        cfg.ocr_rotate_threshold,
         "--oversample",
         cfg.ocr_oversample,
         "--tesseract-timeout",
@@ -37,6 +39,8 @@ def run_ocr(input_pdf: str, output_pdf: str, cfg: Config, mode: str) -> None:
         cfg.ocr_jobs,
         "--language",
         cfg.ocr_lang,
+        "--tesseract-pagesegmode",
+        cfg.ocr_pagesegmode,
         "--optimize",
         "0",
     ]

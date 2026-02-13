@@ -19,6 +19,15 @@ ATTACHMENT_HINT_RE = re.compile(r"(?i)\b(?:supplement|appendix|anexo|annex|ce\b|
 PAGE_FRACTION_RE = re.compile(r"(?i)\bpage\s*(\d+)\s*/\s*(\d+)\b")
 
 NOISE_TOKEN_RE = re.compile(r"(?i)^(?:dn\d+|\d{1,2}mm|\d{4}-\d{2}-\d{2}|po\d+|order\d+)$")
+GENERIC_PAGE_FRACTION_RE = re.compile(r"\b(\d{1,2})\s*/\s*(\d{1,2})\b")
+
+ZONE_SPECS: tuple[tuple[str, tuple[float, float, float, float], float], ...] = (
+    ("header", (0.0, 0.0, 1.0, 0.28), 14.0),
+    ("footer", (0.0, 0.72, 1.0, 1.0), 8.0),
+    ("left", (0.0, 0.0, 0.35, 1.0), 8.0),
+    ("right", (0.65, 0.0, 1.0, 1.0), 8.0),
+    ("center", (0.2, 0.2, 0.8, 0.8), 4.0),
+)
 
 
 def normalize_token(token: str) -> str:
@@ -72,25 +81,34 @@ def _filter_noise(values: Iterable[str]) -> list[str]:
 
 
 def extract_page_signature(page: Any, vendor: str) -> PageExtraction:
-    top = zone_text(page, (0.0, 0.0, 1.0, 0.35))
-    bottom = zone_text(page, (0.0, 0.65, 1.0, 1.0))
     full = page.get_text("text") or ""
-    combined = "\n".join([top, full, bottom])
+
+    zone_chunks: list[str] = []
+    weighted_chunks: list[tuple[str, float]] = [(full, 0.0)]
+    for _, box, boost in ZONE_SPECS:
+        txt = zone_text(page, box)
+        if txt.strip():
+            zone_chunks.append(txt)
+            weighted_chunks.append((txt, boost))
+    combined = "\n".join(zone_chunks + [full])
 
     cert_cands: list[tuple[str, float]] = []
-    for m in CERT_LABEL_RE.finditer(combined):
-        token = normalize_token(m.group(1))
-        cert_cands.append((token, _score_cert(token, combined, m.start())))
+    for txt, boost in weighted_chunks:
+        for m in CERT_LABEL_RE.finditer(txt):
+            token = normalize_token(m.group(1))
+            cert_cands.append((token, _score_cert(token, txt, m.start()) + boost))
 
     if not cert_cands:
-        for m in CERT_FALLBACK_RE.finditer(combined):
-            token = normalize_token(m.group(0))
-            cert_cands.append((token, _score_cert(token, combined, m.start()) - 15))
+        for txt, boost in weighted_chunks:
+            for m in CERT_FALLBACK_RE.finditer(txt):
+                token = normalize_token(m.group(0))
+                cert_cands.append((token, _score_cert(token, txt, m.start()) - 15 + max(0.0, boost / 2)))
 
     heat_cands: list[tuple[str, float]] = []
-    for m in HEAT_LABEL_RE.finditer(combined):
-        token = normalize_token(m.group(1))
-        heat_cands.append((token, _score_heat(token, combined, m.start())))
+    for txt, boost in weighted_chunks:
+        for m in HEAT_LABEL_RE.finditer(txt):
+            token = normalize_token(m.group(1))
+            heat_cands.append((token, _score_heat(token, txt, m.start()) + boost))
 
     cert_by_token = defaultdict(float)
     for tok, sc in cert_cands:
@@ -118,7 +136,7 @@ def extract_page_signature(page: Any, vendor: str) -> PageExtraction:
         flags.append("attachment")
     if is_cert:
         flags.append("certificate")
-    if PAGE_FRACTION_RE.search(combined):
+    if PAGE_FRACTION_RE.search(combined) or any(int(a) <= int(b) <= 99 for a, b in GENERIC_PAGE_FRACTION_RE.findall(combined)):
         flags.append("page_fraction")
 
     sig = PageSignature(
