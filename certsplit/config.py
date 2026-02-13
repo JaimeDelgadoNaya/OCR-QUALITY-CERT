@@ -11,6 +11,8 @@ class Config:
     ocr_oversample: str = "450"
     ocr_timeout: str = "0"
     ocr_jobs: str = "1"
+    ocr_rotate_threshold: str = "2.0"
+    ocr_pagesegmode: str = "6"
     max_filename: int = 180
     default_norma: str = "ASME_BPE"
     default_sf: str = "SF?"
